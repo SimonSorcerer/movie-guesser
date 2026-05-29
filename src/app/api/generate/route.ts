@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { isValidIcon, FALLBACK_ICON } from "@/lib/icons";
 import { parseModelJson } from "@/lib/parseModelJson";
 import { redis, PUZZLE_TTL_SECONDS } from "@/lib/redis";
+import { checkRateLimit } from "@/lib/rateLimit";
 
 const client = new Anthropic();
 
@@ -47,7 +48,21 @@ function validateAndFixIcons(icons: string[]): string[] {
   return icons.map((name) => (isValidIcon(name) ? name : FALLBACK_ICON));
 }
 
+function getIp(req: NextRequest): string {
+  return (
+    req.headers.get("x-forwarded-for")?.split(",")[0].trim() ??
+    req.headers.get("x-real-ip") ??
+    "unknown"
+  );
+}
+
 export async function POST(req: NextRequest) {
+  const ip = getIp(req);
+  const allowed = await checkRateLimit(ip, "generate", 10, 60 * 60);
+  if (!allowed) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  }
+
   const body = await req.json().catch(() => ({}));
   const recentTitles: string[] = body.recentTitles ?? [];
 

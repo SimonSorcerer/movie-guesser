@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { NextRequest, NextResponse } from "next/server";
 import { parseModelJson } from "@/lib/parseModelJson";
 import { redis, PUZZLE_TTL_SECONDS } from "@/lib/redis";
+import { checkRateLimit } from "@/lib/rateLimit";
 
 const client = new Anthropic();
 
@@ -19,7 +20,21 @@ interface JudgeResponse {
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
+function getIp(req: NextRequest): string {
+  return (
+    req.headers.get("x-forwarded-for")?.split(",")[0].trim() ??
+    req.headers.get("x-real-ip") ??
+    "unknown"
+  );
+}
+
 export async function POST(req: NextRequest) {
+  const ip = getIp(req);
+  const allowed = await checkRateLimit(ip, "guess", 60, 60 * 60);
+  if (!allowed) {
+    return NextResponse.json({ error: "Too many requests" }, { status: 429 });
+  }
+
   const body = await req.json().catch(() => ({}));
   const { puzzleId, guess } = body as { puzzleId?: string; guess?: string };
 
