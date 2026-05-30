@@ -7,9 +7,9 @@ import { checkRateLimit } from "@/lib/rateLimit";
 
 const client = new Anthropic();
 
-const SYSTEM_PROMPT = `You create icon-rebus movie puzzles. Pick ONE well-known, widely-recognized movie (broad international fame, not niche).
+const SYSTEM_PROMPT = `You create icon-rebus movie puzzles. Pick ONE well-known movie. Be deliberately unpredictable — vary the genre (action, drama, comedy, horror, sci-fi, animation, foreign), decade (1960s to today), and country of origin. Do NOT default to the most obvious or iconic choice. Surprise the player.
 
-Encode its title as 2–4 Google Material Symbols icons that phonetically or semantically hint the title.
+Encode its title using as many Google Material Symbols icons as needed to accurately and creatively represent the title — use more icons when the title has multiple words or sounds worth hinting, and fewer only when a single icon is a strikingly accurate representation on its own.
 
 Rules:
 - Use ONLY real Material Symbols icon names, snake_case.
@@ -21,7 +21,7 @@ JSON shape:
   "title": "canonical movie title",
   "icons": ["icon_name", ...],
   "acceptable_answers": ["lowercase variant", ...],
-  "hints": ["vague hint", "more specific hint"]
+  "hints": ["vague hint", "more specific hint", "very specific hint"]
 }`;
 
 interface PuzzleResponse {
@@ -35,7 +35,7 @@ async function callClaude(messages: Anthropic.MessageParam[]): Promise<string> {
   const response = await client.messages.create({
     model: "claude-sonnet-4-6",
     max_tokens: 1024,
-    temperature: 0.9,
+    temperature: 1.0,
     system: SYSTEM_PROMPT,
     messages,
   });
@@ -56,15 +56,17 @@ function getIp(req: NextRequest): string {
   );
 }
 
+const RECENT_TITLES_KEY = "recent_titles";
+const RECENT_TITLES_MAX = 5;
+
 export async function POST(req: NextRequest) {
   const ip = getIp(req);
-  const allowed = await checkRateLimit(ip, "generate", 10, 60 * 60);
+  const allowed = await checkRateLimit(ip, "generate", 20, 60 * 60);
   if (!allowed) {
     return NextResponse.json({ error: "Too many requests" }, { status: 429 });
   }
 
-  const body = await req.json().catch(() => ({}));
-  const recentTitles: string[] = body.recentTitles ?? [];
+  const recentTitles = (await redis.get<string[]>(RECENT_TITLES_KEY)) ?? [];
 
   const userMessage =
     recentTitles.length > 0
@@ -105,16 +107,20 @@ export async function POST(req: NextRequest) {
 
   const puzzleId = crypto.randomUUID();
 
-  await redis.setex(
-    `puzzle:${puzzleId}`,
-    PUZZLE_TTL_SECONDS,
-    JSON.stringify({
-      title: puzzle.title,
-      acceptable_answers: puzzle.acceptable_answers,
-      hints: puzzle.hints,
-      hintsRevealed: 0,
-    })
-  );
+  const updatedTitles = [puzzle.title, ...recentTitles].slice(0, RECENT_TITLES_MAX);
+  await Promise.all([
+    redis.setex(
+      `puzzle:${puzzleId}`,
+      PUZZLE_TTL_SECONDS,
+      JSON.stringify({
+        title: puzzle.title,
+        acceptable_answers: puzzle.acceptable_answers,
+        hints: puzzle.hints,
+        hintsRevealed: 0,
+      })
+    ),
+    redis.set(RECENT_TITLES_KEY, JSON.stringify(updatedTitles)),
+  ]);
 
   return NextResponse.json({ puzzleId, icons: puzzle.icons });
 }

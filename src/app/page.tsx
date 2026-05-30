@@ -12,7 +12,6 @@ interface GameState {
   revealedHints: string[];
   status: Status;
   error: string | null;
-  recentTitles: string[];
 }
 
 const initialState: GameState = {
@@ -23,20 +22,21 @@ const initialState: GameState = {
   revealedHints: [],
   status: "idle",
   error: null,
-  recentTitles: [],
 };
 
 export default function Home() {
   const [state, setState] = useState<GameState>(initialState);
+  const [isGuessing, setIsGuessing] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const newPuzzleRef = useRef<HTMLButtonElement>(null);
 
-  async function loadPuzzle(recentTitles: string[]) {
-    setState((s) => ({ ...s, status: "loading", error: null }));
+  async function loadPuzzle() {
+    setState((s) => ({ ...s, status: "loading", error: null, icons: [], revealedHints: [] }));
     try {
       const res = await fetch("/api/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ recentTitles }),
+        body: JSON.stringify({}),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to generate puzzle");
@@ -48,9 +48,7 @@ export default function Home() {
         guessCount: 0,
         revealedHints: [],
         status: "playing",
-        recentTitles: [...recentTitles, data.puzzleId].slice(-5),
       }));
-      inputRef.current?.focus();
     } catch (e) {
       setState((s) => ({
         ...s,
@@ -61,32 +59,45 @@ export default function Home() {
   }
 
   async function submitGuess() {
-    if (!state.puzzleId || !state.guess.trim() || state.status !== "playing") return;
-    const res = await fetch("/api/guess", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ puzzleId: state.puzzleId, guess: state.guess }),
-    });
-    const data = await res.json();
-    if (data.correct) {
-      setState((s) => ({ ...s, status: "won" }));
-    } else {
-      setState((s) => ({
-        ...s,
-        guessCount: s.guessCount + 1,
-        revealedHints: data.hint
-          ? [...s.revealedHints, data.hint]
-          : s.revealedHints,
-        guess: "",
-      }));
-      inputRef.current?.focus();
+    if (!state.puzzleId || !state.guess.trim() || state.status !== "playing" || isGuessing) return;
+    setIsGuessing(true);
+    try {
+      const res = await fetch("/api/guess", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ puzzleId: state.puzzleId, guess: state.guess }),
+      });
+      const data = await res.json();
+      if (data.correct) {
+        setState((s) => ({ ...s, status: "won" }));
+      } else {
+        setState((s) => ({
+          ...s,
+          guessCount: s.guessCount + 1,
+          revealedHints: data.hint
+            ? [...s.revealedHints, data.hint]
+            : s.revealedHints,
+          guess: "",
+        }));
+      }
+    } finally {
+      setIsGuessing(false);
     }
   }
 
   useEffect(() => {
-    loadPuzzle([]);
+    loadPuzzle();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    if (!isGuessing && state.status === "playing") {
+      inputRef.current?.focus();
+    }
+    if (state.status === "won") {
+      newPuzzleRef.current?.focus();
+    }
+  }, [isGuessing, state.status]);
 
   const isPlaying = state.status === "playing";
   const isLoading = state.status === "loading";
@@ -119,8 +130,9 @@ export default function Home() {
         <div className="flex flex-col items-center gap-4">
           <p className="text-2xl font-semibold text-green-600">You got it!</p>
           <button
-            onClick={() => loadPuzzle(state.recentTitles)}
-            className="px-6 py-2 rounded-full bg-black text-white text-sm font-medium hover:bg-gray-800 transition-colors"
+            ref={newPuzzleRef}
+            onClick={() => loadPuzzle()}
+            className="px-6 py-2 rounded-full bg-black text-white text-sm font-medium hover:bg-gray-800 transition-colors focus:outline-none focus:ring-2 focus:ring-black"
           >
             New puzzle
           </button>
@@ -138,14 +150,25 @@ export default function Home() {
               onChange={(e) => setState((s) => ({ ...s, guess: e.target.value }))}
               onKeyDown={(e) => e.key === "Enter" && submitGuess()}
               placeholder="Type a movie title…"
-              className="flex-1 px-4 py-2 rounded-full border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-black"
+              disabled={isGuessing}
+              className="flex-1 px-4 py-2 rounded-full border border-gray-300 text-sm focus:outline-none focus:ring-2 focus:ring-black disabled:opacity-50 disabled:cursor-not-allowed transition-opacity"
             />
             <button
               onClick={submitGuess}
-              disabled={!state.guess.trim()}
-              className="px-5 py-2 rounded-full bg-black text-white text-sm font-medium hover:bg-gray-800 disabled:opacity-40 transition-colors"
+              disabled={!state.guess.trim() || isGuessing}
+              className="min-w-[80px] px-5 py-2 rounded-full bg-black text-white text-sm font-medium hover:bg-gray-800 disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
             >
-              Guess
+              {isGuessing ? (
+                <>
+                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
+                  </svg>
+                  Checking
+                </>
+              ) : (
+                "Guess"
+              )}
             </button>
           </div>
 
@@ -179,7 +202,7 @@ export default function Home() {
         <div className="flex flex-col items-center gap-3">
           <p className="text-sm text-red-500">{state.error}</p>
           <button
-            onClick={() => loadPuzzle(state.recentTitles)}
+            onClick={() => loadPuzzle()}
             className="px-5 py-2 rounded-full border border-gray-300 text-sm hover:bg-gray-50 transition-colors"
           >
             Try again
@@ -190,7 +213,7 @@ export default function Home() {
       {/* Idle / start */}
       {state.status === "idle" && !state.error && (
         <button
-          onClick={() => loadPuzzle([])}
+          onClick={() => loadPuzzle()}
           className="px-6 py-2 rounded-full bg-black text-white text-sm font-medium hover:bg-gray-800 transition-colors"
         >
           Start

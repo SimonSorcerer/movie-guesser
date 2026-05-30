@@ -20,6 +20,29 @@ interface JudgeResponse {
 
 const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
 
+function maskTitle(title: string): string {
+  return title
+    .split(" ")
+    .map((word) =>
+      word
+        .split("")
+        .map((ch, i) => (/[a-zA-Z]/.test(ch) && i > 0 ? "_" : ch))
+        .join("")
+    )
+    .join(" ");
+}
+
+function halfRevealTitle(title: string): string {
+  let letterIndex = 0;
+  return title
+    .split("")
+    .map((ch) => {
+      if (!/[a-zA-Z]/.test(ch)) return ch;
+      return letterIndex++ % 2 === 0 ? ch : "_";
+    })
+    .join("");
+}
+
 function getIp(req: NextRequest): string {
   return (
     req.headers.get("x-forwarded-for")?.split(",")[0].trim() ??
@@ -58,7 +81,7 @@ export async function POST(req: NextRequest) {
   // Claude judge on miss
   try {
     const response = await client.messages.create({
-      model: "claude-sonnet-4-6",
+      model: "claude-haiku-4-5-20251001",
       max_tokens: 256,
       temperature: 0,
       system: `You judge whether a user's guess matches a movie title.
@@ -86,7 +109,11 @@ Return ONLY JSON: { "correct": boolean, "reason": "short string" }`,
 
   // Wrong guess — reveal next hint if available
   const hintIndex = puzzle.hintsRevealed ?? 0;
-  const hint = puzzle.hints[hintIndex];
+  const hint =
+    puzzle.hints[hintIndex] ??
+    (hintIndex === 3 ? maskTitle(puzzle.title) :
+     hintIndex === 4 ? halfRevealTitle(puzzle.title) :
+     undefined);
 
   if (hint !== undefined) {
     const updated: StoredPuzzle = { ...puzzle, hintsRevealed: hintIndex + 1 };
