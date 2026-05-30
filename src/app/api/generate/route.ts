@@ -59,6 +59,13 @@ function getIp(req: NextRequest): string {
 const RECENT_TITLES_KEY = "recent_titles";
 const RECENT_TITLES_MAX = 5;
 
+const GENRES = ["action", "drama", "comedy", "thriller", "sci-fi", "romance", "animation", "crime", "horror", "fantasy", "adventure", "mystery"];
+const THEMES = ["friendship", "identity", "redemption", "survival", "justice", "betrayal", "ambition", "courage", "loss", "freedom", "sacrifice", "discovery", "obsession", "loyalty", "chaos", "transformation", "memory", "fate", "rivalry", "trust"];
+
+function pick<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
 export async function POST(req: NextRequest) {
   const ip = getIp(req);
   const allowed = await checkRateLimit(ip, "generate", 20, 60 * 60);
@@ -67,11 +74,14 @@ export async function POST(req: NextRequest) {
   }
 
   const recentTitles = (await redis.get<string[]>(RECENT_TITLES_KEY)) ?? [];
+  const genre = pick(GENRES);
+  const theme = pick(THEMES);
 
-  const userMessage =
-    recentTitles.length > 0
-      ? `Generate a new puzzle. Avoid these recent titles: ${recentTitles.join(", ")}.`
-      : "Generate a new puzzle.";
+  const avoidClause = recentTitles.length > 0
+    ? ` Avoid these recent titles: ${recentTitles.join(", ")}.`
+    : "";
+
+  const userMessage = `Generate a new puzzle. Pick a ${genre} film with a theme of ${theme}.${avoidClause}`;
 
   const messages: Anthropic.MessageParam[] = [
     { role: "user", content: userMessage },
