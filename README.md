@@ -2,6 +2,8 @@
 
 <img src="public/screenshot.png" width="48%" /> <img src="public/screenshot2.png" width="48%" />
 
+**[Live demo →](https://movie-guesser-two.vercel.app)**
+
 A small web game that demonstrates two practical LLM integration patterns: constrained generation and fuzzy evaluation. Guess the movie from a row of Google Material Symbols icons.
 
 ## How it works
