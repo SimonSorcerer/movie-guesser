@@ -1,5 +1,7 @@
 # Movie Guesser
 
+![Movie Guesser](public/screenshot.png)
+
 A small web game that demonstrates two practical LLM integration patterns: constrained generation and fuzzy evaluation. Guess the movie from a row of Google Material Symbols icons.
 
 ## How it works
